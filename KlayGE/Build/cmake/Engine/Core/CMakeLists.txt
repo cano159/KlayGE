@@ -381,6 +381,7 @@ SET(PACKING_SOURCE_FILES
 	${KLAYGE_PROJECT_DIR}/Core/Src/Pack/ArchiveOpenCallback.cpp
 	${KLAYGE_PROJECT_DIR}/Core/Src/Pack/Extract7z.cpp
 	${KLAYGE_PROJECT_DIR}/Core/Src/Pack/LZMACodec.cpp
+	${KLAYGE_PROJECT_DIR}/Core/Src/Pack/Package.cpp
 	${KLAYGE_PROJECT_DIR}/Core/Src/Pack/Streams.cpp
 )
 
@@ -389,6 +390,7 @@ SET(PACKING_HEADER_FILES
 	${KLAYGE_PROJECT_DIR}/Core/Src/Pack/ArchiveOpenCallback.hpp
 	${KLAYGE_PROJECT_DIR}/Core/Include/KlayGE/Extract7z.hpp
 	${KLAYGE_PROJECT_DIR}/Core/Include/KlayGE/LZMACodec.hpp
+	${KLAYGE_PROJECT_DIR}/Core/Include/KlayGE/Package.hpp
 	${KLAYGE_PROJECT_DIR}/Core/Src/Pack/Streams.hpp
 )
 

@@ -33,185 +33,11 @@
 #include <KFL/Util.hpp>
 #include <KFL/ErrorHandling.hpp>
 #include <KFL/COMPtr.hpp>
-
-#include <CPP/Common/MyWindows.h>
-
-#include <KFL/DllLoader.hpp>
-
-#include <string>
-#include <algorithm>
+#include <KlayGE/Package.hpp>
 
 #include <boost/assert.hpp>
-#if defined(KLAYGE_COMPILER_CLANGC2)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-variable" // Ignore unused variable (mpl_assertion_in_line_xxx) in boost
-#endif
-#include <boost/algorithm/string/predicate.hpp>
-#if defined(KLAYGE_COMPILER_CLANGC2)
-#pragma clang diagnostic pop
-#endif
-
-#include <CPP/7zip/Archive/IArchive.h>
-
-#include "Streams.hpp"
-#include "ArchiveExtractCallback.hpp"
-#include "ArchiveOpenCallback.hpp"
 
 #include <KlayGE/Extract7z.hpp>
-
-#ifndef WINAPI
-#ifdef _MSC_VER
-#define WINAPI __stdcall
-#else
-#define WINAPI
-#endif
-#endif
-
-namespace
-{
-	using namespace KlayGE;
-
-	// {23170F69-40C1-278A-1000-000110070000}
-	DEFINE_GUID(CLSID_CFormat7z,
-			0x23170F69, 0x40C1, 0x278A, 0x10, 0x00, 0x00, 0x01, 0x10, 0x07, 0x00, 0x00);
-
-	typedef KlayGE::uint32_t (WINAPI *CreateObjectFunc)(const GUID* clsID, const GUID* interfaceID, void** outObject);
-
-	HRESULT GetArchiveItemPath(std::shared_ptr<IInArchive> const & archive, uint32_t index, std::string& result)
-	{
-		PROPVARIANT prop;
-		prop.vt = VT_EMPTY;
-		TIFHR(archive->GetProperty(index, kpidPath, &prop));
-		switch (prop.vt)
-		{
-		case VT_BSTR:
-			Convert(result, prop.bstrVal);
-			return S_OK;
-
-		case VT_EMPTY:
-			result.clear();
-			return S_OK;
-
-		default:
-			return E_FAIL;
-		}
-	}
-
-	HRESULT IsArchiveItemFolder(std::shared_ptr<IInArchive> const & archive, uint32_t index, bool &result)
-	{
-		PROPVARIANT prop;
-		prop.vt = VT_EMPTY;
-		TIFHR(archive->GetProperty(index, kpidIsDir, &prop));
-		switch (prop.vt)
-		{
-		case VT_BOOL:
-			result = (prop.boolVal != VARIANT_FALSE);
-			return S_OK;
-
-		case VT_EMPTY:
-			result = false;
-			return S_OK;
-
-		default:
-			return E_FAIL;
-		}
-	}
-
-	class SevenZipLoader
-	{
-	public:
-		static SevenZipLoader& Instance()
-		{
-			static SevenZipLoader ret;
-			return ret;
-		}
-
-		HRESULT CreateObject(const GUID* clsID, const GUID* interfaceID, void** outObject)
-		{
-			return createObjectFunc_(clsID, interfaceID, outObject);
-		}
-
-	private:
-		SevenZipLoader()
-		{
-			dll_loader_.Load(DLL_PREFIX "7zxa" DLL_SUFFIX);
-
-			createObjectFunc_ = (CreateObjectFunc)dll_loader_.GetProcAddress("CreateObject");
-
-			BOOST_ASSERT(createObjectFunc_);
-		}
-
-	private:
-		DllLoader dll_loader_;
-		CreateObjectFunc createObjectFunc_;
-	};
-
-
-	void GetArchiveIndex(std::shared_ptr<IInArchive>& archive, uint32_t& real_index,
-								ResIdentifierPtr const & archive_is,
-								std::string_view password,
-								std::string_view extract_file_path)
-	{
-		BOOST_ASSERT(archive_is);
-
-		{
-			IInArchive* tmp;
-			TIFHR(SevenZipLoader::Instance().CreateObject(&CLSID_CFormat7z, &IID_IInArchive, reinterpret_cast<void**>(&tmp)));
-			archive = MakeCOMPtr(tmp);
-		}
-
-		std::shared_ptr<IInStream> file = MakeCOMPtr(new CInStream);
-		checked_pointer_cast<CInStream>(file)->Attach(archive_is);
-
-		std::shared_ptr<IArchiveOpenCallback> ocb = MakeCOMPtr(new CArchiveOpenCallback);
-		checked_pointer_cast<CArchiveOpenCallback>(ocb)->Init(password);
-		TIFHR(archive->Open(file.get(), 0, ocb.get()));
-
-		real_index = 0xFFFFFFFF;
-		uint32_t num_items;
-		TIFHR(archive->GetNumberOfItems(&num_items));
-
-		for (uint32_t i = 0; i < num_items; ++ i)
-		{
-			bool is_folder = true;
-			TIFHR(IsArchiveItemFolder(archive, i, is_folder));
-			if (!is_folder)
-			{
-				std::string file_path;
-				TIFHR(GetArchiveItemPath(archive, i, file_path));
-				std::replace(file_path.begin(), file_path.end(), '\\', '/');
-				if (!boost::algorithm::ilexicographical_compare(extract_file_path, file_path)
-					&& !boost::algorithm::ilexicographical_compare(file_path, extract_file_path))
-				{
-					real_index = i;
-					break;
-				}
-			}
-		}
-		if (real_index != 0xFFFFFFFF)
-		{
-			PROPVARIANT prop;
-			prop.vt = VT_EMPTY;
-			TIFHR(archive->GetProperty(real_index, kpidIsAnti, &prop));
-			if ((VT_BOOL == prop.vt) && (VARIANT_FALSE == prop.boolVal))
-			{
-				prop.vt = VT_EMPTY;
-				TIFHR(archive->GetProperty(real_index, kpidPosition, &prop));
-				if (prop.vt != VT_EMPTY)
-				{
-					if ((prop.vt != VT_UI8) || (prop.uhVal.QuadPart != 0))
-					{
-						real_index = 0xFFFFFFFF;
-					}
-				}
-			}
-			else
-			{
-				real_index = 0xFFFFFFFF;
-			}
-		}
-	}
-}
 
 namespace KlayGE
 {
@@ -219,29 +45,16 @@ namespace KlayGE
 								std::string_view password,
 								std::string_view extract_file_path)
 	{
-		std::shared_ptr<IInArchive> archive;
-		uint32_t real_index;
-		GetArchiveIndex(archive, real_index, archive_is, password, extract_file_path);
-		return real_index;
+		Package package(archive_is, password);
+		return package.Find(extract_file_path);
 	}
 
 	void Extract7z(ResIdentifierPtr const & archive_is,
-							   std::string_view password,
-							   std::string_view extract_file_path,
+		std::string_view password,
+		std::string_view extract_file_path,
 		std::shared_ptr<std::ostream> const & os)
 	{
-		std::shared_ptr<IInArchive> archive;
-		uint32_t real_index;
-		GetArchiveIndex(archive, real_index, archive_is, password, extract_file_path);
-		if (real_index != 0xFFFFFFFF)
-		{
-			std::shared_ptr<ISequentialOutStream> out_stream = MakeCOMPtr(new COutStream);
-			checked_pointer_cast<COutStream>(out_stream)->Attach(os);
-
-			std::shared_ptr<IArchiveExtractCallback> ecb = MakeCOMPtr(new CArchiveExtractCallback);
-			checked_pointer_cast<CArchiveExtractCallback>(ecb)->Init(password, out_stream);
-
-			TIFHR(archive->Extract(&real_index, 1, false, ecb.get()));
-		}
+		Package package(archive_is, password);
+		return package.Extract(extract_file_path, os);
 	}
 }

@@ -197,7 +197,7 @@ namespace KlayGE
 		local_path_ = exe_path_;
 #endif
 
-		paths_.push_back("");
+		paths_.push_back(std::make_pair("", ""));
 
 #if defined KLAYGE_PLATFORM_WINDOWS_STORE
 		this->AddPath("Assets/");
@@ -309,25 +309,35 @@ namespace KlayGE
 		return abs_path;
 	}
 
-	void ResLoader::AddPath(std::string const & path)
+	void ResLoader::AddPath(std::string_view path)
+	{
+		this->Mount("", path);
+	}
+
+	void ResLoader::DelPath(std::string_view path)
+	{
+		this->Unmount("", path);
+	}
+
+	void ResLoader::Mount(std::string_view virtual_path, std::string_view real_path)
 	{
 		std::lock_guard<std::mutex> lock(paths_mutex_);
 
-		std::string real_path = this->RealPath(path);
-		if (!real_path.empty())
+		std::string abs_path = this->RealPath(std::string(real_path));
+		if (!abs_path.empty())
 		{
-			paths_.push_back(real_path);
+			paths_.push_back(std::make_pair(std::string(virtual_path), abs_path));
 		}
 	}
 
-	void ResLoader::DelPath(std::string const & path)
+	void ResLoader::Unmount(std::string_view virtual_path, std::string_view real_path)
 	{
 		std::lock_guard<std::mutex> lock(paths_mutex_);
 
-		std::string real_path = this->RealPath(path);
-		if (!real_path.empty())
+		std::string abs_path = this->RealPath(std::string(real_path));
+		if (!abs_path.empty())
 		{
-			auto iter = std::find(paths_.begin(), paths_.end(), real_path);
+			auto iter = std::find(paths_.begin(), paths_.end(), std::make_pair(std::string(virtual_path), abs_path));
 			if (iter != paths_.end())
 			{
 				paths_.erase(iter);
@@ -338,45 +348,48 @@ namespace KlayGE
 	std::string ResLoader::Locate(std::string const & name)
 	{
 #if defined(KLAYGE_PLATFORM_ANDROID)
-		AAsset* asset = LocateFileAndroid(name);
+		AAsset* asset = this->LocateFileAndroid(name);
 		if (asset != nullptr)
 		{
 			AAsset_close(asset);
 			return name;
 		}
 #elif defined(KLAYGE_PLATFORM_IOS)
-		return LocateFileIOS(name);
+		return this->LocateFileIOS(name);
 #else
 		{
 			std::lock_guard<std::mutex> lock(paths_mutex_);
 			for (auto const & path : paths_)
 			{
-				std::string res_name(path + name);
+				if (path.first.empty() || (name.find(path.first) == 0))
+				{
+					std::string res_name(path.second + name);
 #if defined KLAYGE_PLATFORM_WINDOWS
-				std::replace(res_name.begin(), res_name.end(), '\\', '/');
+					std::replace(res_name.begin(), res_name.end(), '\\', '/');
 #endif
 
-				if (std::filesystem::exists(std::filesystem::path(res_name)))
-				{
-					return res_name;
-				}
-				else
-				{
-					std::string password;
-					std::string internal_name;
-					ResIdentifierPtr pkt_file = LocatePkt(name, res_name, password, internal_name);
-					if (pkt_file && *pkt_file)
+					if (std::filesystem::exists(std::filesystem::path(res_name)))
 					{
-						if (Find7z(pkt_file, password, internal_name) != 0xFFFFFFFF)
+						return res_name;
+					}
+					else
+					{
+						std::string password;
+						std::string internal_name;
+						ResIdentifierPtr pkt_file = this->LocatePkt(name, res_name, password, internal_name);
+						if (pkt_file && *pkt_file)
 						{
-							return res_name;
+							if (Find7z(pkt_file, password, internal_name) != 0xFFFFFFFF)
+							{
+								return res_name;
+							}
 						}
 					}
 				}
 			}
 		}
 #if defined KLAYGE_PLATFORM_WINDOWS_STORE
-		std::string const & res_name = LocateFileWinRT(name);
+		std::string const & res_name = this->LocateFileWinRT(name);
 		if (!res_name.empty())
 		{
 			return this->Locate(res_name);
@@ -390,7 +403,7 @@ namespace KlayGE
 	ResIdentifierPtr ResLoader::Open(std::string const & name)
 	{
 #if defined(KLAYGE_PLATFORM_ANDROID)
-		AAsset* asset = LocateFileAndroid(name);
+		AAsset* asset = this->LocateFileAndroid(name);
 		if (asset != nullptr)
 		{
 			std::shared_ptr<AAssetStreamBuf> asb = MakeSharedPtr<AAssetStreamBuf>(asset);
@@ -398,7 +411,7 @@ namespace KlayGE
 			return MakeSharedPtr<ResIdentifier>(name, 0, asset_file, asb);
 		}
 #elif defined(KLAYGE_PLATFORM_IOS)
-		std::string const & res_name = LocateFileIOS(name);
+		std::string const & res_name = this->LocateFileIOS(name);
 		if (!res_name.empty())
 		{
 			std::filesystem::path res_path(res_name);
@@ -416,39 +429,42 @@ namespace KlayGE
 			std::lock_guard<std::mutex> lock(paths_mutex_);
 			for (auto const & path : paths_)
 			{
-				std::string res_name(path + name);
+				if (path.first.empty() || (name.find(path.first) == 0))
+				{
+					std::string res_name(path.second + name);
 #if defined KLAYGE_PLATFORM_WINDOWS
-				std::replace(res_name.begin(), res_name.end(), '\\', '/');
+					std::replace(res_name.begin(), res_name.end(), '\\', '/');
 #endif
 
-				std::filesystem::path res_path(res_name);
-				if (std::filesystem::exists(res_path))
-				{
-#if defined(KLAYGE_CXX17_LIBRARY_FILESYSTEM_SUPPORT) || defined(KLAYGE_TS_LIBRARY_FILESYSTEM_SUPPORT)
-					uint64_t timestamp = std::filesystem::last_write_time(res_path).time_since_epoch().count();
-#else
-					uint64_t timestamp = std::filesystem::last_write_time(res_path);
-#endif
-					// The static_cast is a workaround for a bug in clang/c2
-					return MakeSharedPtr<ResIdentifier>(name, timestamp,
-						MakeSharedPtr<std::ifstream>(res_name.c_str(), static_cast<std::ios_base::openmode>(std::ios_base::binary)));
-				}
-				else
-				{
-					std::string password;
-					std::string internal_name;
-					ResIdentifierPtr pkt_file = LocatePkt(name, res_name, password, internal_name);
-					if (pkt_file && *pkt_file)
+					std::filesystem::path res_path(res_name);
+					if (std::filesystem::exists(res_path))
 					{
-						std::shared_ptr<std::iostream> packet_file = MakeSharedPtr<std::stringstream>();
-						Extract7z(pkt_file, password, internal_name, packet_file);
-						return MakeSharedPtr<ResIdentifier>(name, pkt_file->Timestamp(), packet_file);
+#if defined(KLAYGE_CXX17_LIBRARY_FILESYSTEM_SUPPORT) || defined(KLAYGE_TS_LIBRARY_FILESYSTEM_SUPPORT)
+						uint64_t timestamp = std::filesystem::last_write_time(res_path).time_since_epoch().count();
+#else
+						uint64_t timestamp = std::filesystem::last_write_time(res_path);
+#endif
+						// The static_cast is a workaround for a bug in clang/c2
+						return MakeSharedPtr<ResIdentifier>(name, timestamp,
+							MakeSharedPtr<std::ifstream>(res_name.c_str(), static_cast<std::ios_base::openmode>(std::ios_base::binary)));
+					}
+					else
+					{
+						std::string password;
+						std::string internal_name;
+						ResIdentifierPtr pkt_file = this->LocatePkt(name, res_name, password, internal_name);
+						if (pkt_file && *pkt_file)
+						{
+							std::shared_ptr<std::iostream> packet_file = MakeSharedPtr<std::stringstream>();
+							Extract7z(pkt_file, password, internal_name, packet_file);
+							return MakeSharedPtr<ResIdentifier>(name, pkt_file->Timestamp(), packet_file);
+						}
 					}
 				}
 			}
 		}
 #if defined(KLAYGE_PLATFORM_WINDOWS_STORE)
-		std::string const & res_name = LocateFileWinRT(name);
+		std::string const & res_name = this->LocateFileWinRT(name);
 		if (!res_name.empty())
 		{
 			return this->Open(res_name);

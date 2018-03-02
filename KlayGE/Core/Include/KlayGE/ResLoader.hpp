@@ -95,12 +95,15 @@ namespace KlayGE
 		void Suspend();
 		void Resume();
 
-		void AddPath(std::string const & path);
-		void DelPath(std::string const & path);
+		void AddPath(std::string_view path);
+		void DelPath(std::string_view path);
 		std::string const & LocalFolder() const
 		{
 			return local_path_;
 		}
+
+		void Mount(std::string_view virtual_path, std::string_view real_path);
+		void Unmount(std::string_view virtual_path, std::string_view real_path);
 
 		ResIdentifierPtr Open(std::string const & name);
 		std::string Locate(std::string const & name);
@@ -161,7 +164,7 @@ namespace KlayGE
 
 		std::string exe_path_;
 		std::string local_path_;
-		std::vector<std::string> paths_;
+		std::vector<std::pair<std::string, std::string>> paths_;
 		std::mutex paths_mutex_;
 
 		std::mutex loaded_mutex_;
@@ -173,6 +176,8 @@ namespace KlayGE
 
 		std::unique_ptr<joiner<void>> loading_thread_;
 		volatile bool quit_;
+
+		std::vector<PackagePtr> packages_;
 	};
 }
 
