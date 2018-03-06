@@ -95,15 +95,15 @@ namespace KlayGE
 		void Suspend();
 		void Resume();
 
-		void AddPath(std::string_view path);
-		void DelPath(std::string_view path);
+		void AddPath(std::string_view phy_path);
+		void DelPath(std::string_view phy_path);
 		std::string const & LocalFolder() const
 		{
 			return local_path_;
 		}
 
-		void Mount(std::string_view virtual_path, std::string_view real_path);
-		void Unmount(std::string_view virtual_path, std::string_view real_path);
+		void Mount(std::string_view virtual_path, std::string_view phy_path);
+		void Unmount(std::string_view virtual_path, std::string_view phy_path);
 
 		ResIdentifierPtr Open(std::string const & name);
 		std::string Locate(std::string const & name);
@@ -135,6 +135,9 @@ namespace KlayGE
 
 	private:
 		std::string RealPath(std::string const & path);
+		std::string PhysicalPath(std::string_view virtual_path);
+		void DecomposePackageName(std::string_view path,
+			std::string& package_path, std::string& password, std::string& path_in_package);
 
 		void AddLoadedResource(ResLoadingDescPtr const & res_desc, std::shared_ptr<void> const & res);
 		std::shared_ptr<void> FindMatchLoadedResource(ResLoadingDescPtr const & res_desc);
@@ -142,7 +145,7 @@ namespace KlayGE
 
 		void LoadingThreadFunc();
 
-		ResIdentifierPtr LocatePkt(std::string const & name, std::string const & res_name,
+		ResIdentifierPtr LocatePkt(std::string_view name, std::string_view res_name,
 			std::string& password, std::string& internal_name);
 #if defined(KLAYGE_PLATFORM_ANDROID)
 		AAsset* LocateFileAndroid(std::string const & name);

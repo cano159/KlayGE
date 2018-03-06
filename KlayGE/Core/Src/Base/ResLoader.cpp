@@ -309,35 +309,96 @@ namespace KlayGE
 		return abs_path;
 	}
 
-	void ResLoader::AddPath(std::string_view path)
-	{
-		this->Mount("", path);
-	}
-
-	void ResLoader::DelPath(std::string_view path)
-	{
-		this->Unmount("", path);
-	}
-
-	void ResLoader::Mount(std::string_view virtual_path, std::string_view real_path)
+	std::string ResLoader::PhysicalPath(std::string_view virtual_path)
 	{
 		std::lock_guard<std::mutex> lock(paths_mutex_);
-
-		std::string abs_path = this->RealPath(std::string(real_path));
-		if (!abs_path.empty())
+		for (auto const & path : paths_)
 		{
-			paths_.push_back(std::make_pair(std::string(virtual_path), abs_path));
+			if (path.first.empty() || (virtual_path.find(path.first) == 0))
+			{
+				std::string phy_path(path.second + std::string(virtual_path.substr(path.first.size())));
+#if defined KLAYGE_PLATFORM_WINDOWS
+				std::replace(phy_path.begin(), phy_path.end(), '\\', '/');
+#endif
+
+				if (std::filesystem::exists(std::filesystem::path(phy_path)))
+				{
+					return phy_path;
+				}
+				else
+				{
+					std::string password;
+					std::string path_in_package;
+					ResIdentifierPtr pkt_file = this->LocatePkt(virtual_path, phy_path, password, path_in_package);
+					if (pkt_file && *pkt_file)
+					{
+						if (Find7z(pkt_file, password, path_in_package) != 0xFFFFFFFF)
+						{
+							return phy_path;
+						}
+					}
+				}
+			}
+		}
+
+		return "";
+	}
+
+	void ResLoader::DecomposePackageName(std::string_view path,
+		std::string& package_path, std::string& password, std::string& path_in_package)
+	{
+		package_path = "";
+		password = "";
+		path_in_package = "";
+
+		auto const pkt_offset = path.find("//");
+		if (pkt_offset != std::string::npos)
+		{
+			package_path = std::string(path.substr(0, pkt_offset));
+			std::filesystem::path pkt_path(package_path);
+			if (std::filesystem::exists(pkt_path)
+				&& (std::filesystem::is_regular_file(pkt_path) || std::filesystem::is_symlink(pkt_path)))
+			{
+				auto const password_offset = package_path.find("|");
+				if (password_offset != std::string::npos)
+				{
+					password = package_path.substr(password_offset + 1);
+					package_path = package_path.substr(0, password_offset - 1);
+				}
+				path_in_package = path.substr(pkt_offset + 2);
+			}
 		}
 	}
 
-	void ResLoader::Unmount(std::string_view virtual_path, std::string_view real_path)
+	void ResLoader::AddPath(std::string_view phy_path)
+	{
+		this->Mount("", phy_path);
+	}
+
+	void ResLoader::DelPath(std::string_view phy_path)
+	{
+		this->Unmount("", phy_path);
+	}
+
+	void ResLoader::Mount(std::string_view virtual_path, std::string_view phy_path)
 	{
 		std::lock_guard<std::mutex> lock(paths_mutex_);
 
-		std::string abs_path = this->RealPath(std::string(real_path));
-		if (!abs_path.empty())
+		std::string real_path = this->RealPath(std::string(phy_path));
+		if (!real_path.empty())
 		{
-			auto iter = std::find(paths_.begin(), paths_.end(), std::make_pair(std::string(virtual_path), abs_path));
+			paths_.push_back(std::make_pair(std::string(virtual_path), real_path));
+		}
+	}
+
+	void ResLoader::Unmount(std::string_view virtual_path, std::string_view phy_path)
+	{
+		std::lock_guard<std::mutex> lock(paths_mutex_);
+
+		std::string real_path = this->RealPath(std::string(phy_path));
+		if (!real_path.empty())
+		{
+			auto iter = std::find(paths_.begin(), paths_.end(), std::make_pair(std::string(virtual_path), real_path));
 			if (iter != paths_.end())
 			{
 				paths_.erase(iter);
@@ -752,36 +813,23 @@ namespace KlayGE
 	}
 
 
-	ResIdentifierPtr ResLoader::LocatePkt(std::string const & name, std::string const & res_name,
+	ResIdentifierPtr ResLoader::LocatePkt(std::string_view name, std::string_view res_name,
 			std::string& password, std::string& internal_name)
 	{
 		ResIdentifierPtr res;
-		std::string::size_type const pkt_offset(res_name.find("//"));
-		if (pkt_offset != std::string::npos)
-		{
-			std::string pkt_name = res_name.substr(0, pkt_offset);
-			std::filesystem::path pkt_path(pkt_name);
-			if (std::filesystem::exists(pkt_path)
-				&& (std::filesystem::is_regular_file(pkt_path)
-					|| std::filesystem::is_symlink(pkt_path)))
-			{
-				std::string::size_type const password_offset = pkt_name.find("|");
-				if (password_offset != std::string::npos)
-				{
-					password = pkt_name.substr(password_offset + 1);
-					pkt_name = pkt_name.substr(0, password_offset - 1);
-				}
-				internal_name = res_name.substr(pkt_offset + 2);
 
+		std::string package_path;
+		this->DecomposePackageName(res_name, package_path, password, internal_name);
+		if (!package_path.empty() && std::filesystem::exists(std::filesystem::path(package_path)))
+		{
 #if defined(KLAYGE_CXX17_LIBRARY_FILESYSTEM_SUPPORT) || defined(KLAYGE_TS_LIBRARY_FILESYSTEM_SUPPORT)
-				uint64_t timestamp = std::filesystem::last_write_time(pkt_path).time_since_epoch().count();
+			uint64_t timestamp = std::filesystem::last_write_time(package_path).time_since_epoch().count();
 #else
-				uint64_t timestamp = std::filesystem::last_write_time(pkt_path);
+			uint64_t timestamp = std::filesystem::last_write_time(package_path);
 #endif
-				// The static_cast is a workaround for a bug in clang/c2
-				res = MakeSharedPtr<ResIdentifier>(name, timestamp,
-					MakeSharedPtr<std::ifstream>(pkt_name.c_str(), static_cast<std::ios_base::openmode>(std::ios_base::binary)));
-			}
+			// The static_cast is a workaround for a bug in clang/c2
+			res = MakeSharedPtr<ResIdentifier>(name, timestamp,
+				MakeSharedPtr<std::ifstream>(package_path.c_str(), static_cast<std::ios_base::openmode>(std::ios_base::binary)));
 		}
 
 		return res;
