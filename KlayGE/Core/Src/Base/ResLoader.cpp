@@ -309,41 +309,6 @@ namespace KlayGE
 		return abs_path;
 	}
 
-	std::string ResLoader::PhysicalPath(std::string_view virtual_path)
-	{
-		std::lock_guard<std::mutex> lock(paths_mutex_);
-		for (auto const & path : paths_)
-		{
-			if (path.first.empty() || (virtual_path.find(path.first) == 0))
-			{
-				std::string phy_path(path.second + std::string(virtual_path.substr(path.first.size())));
-#if defined KLAYGE_PLATFORM_WINDOWS
-				std::replace(phy_path.begin(), phy_path.end(), '\\', '/');
-#endif
-
-				if (std::filesystem::exists(std::filesystem::path(phy_path)))
-				{
-					return phy_path;
-				}
-				else
-				{
-					std::string password;
-					std::string path_in_package;
-					ResIdentifierPtr pkt_file = this->LocatePkt(virtual_path, phy_path, password, path_in_package);
-					if (pkt_file && *pkt_file)
-					{
-						if (Find7z(pkt_file, password, path_in_package) != 0xFFFFFFFF)
-						{
-							return phy_path;
-						}
-					}
-				}
-			}
-		}
-
-		return "";
-	}
-
 	void ResLoader::DecomposePackageName(std::string_view path,
 		std::string& package_path, std::string& password, std::string& path_in_package)
 	{
@@ -387,7 +352,13 @@ namespace KlayGE
 		std::string real_path = this->RealPath(std::string(phy_path));
 		if (!real_path.empty())
 		{
-			paths_.push_back(std::make_pair(std::string(virtual_path), real_path));
+			std::string virtual_path_str(virtual_path);
+			if (!virtual_path.empty() && (virtual_path[virtual_path.length() - 1] != '/'))
+			{
+				virtual_path_str.push_back('/');
+			}
+
+			paths_.push_back(std::make_pair(virtual_path_str, real_path));
 		}
 	}
 
@@ -398,7 +369,13 @@ namespace KlayGE
 		std::string real_path = this->RealPath(std::string(phy_path));
 		if (!real_path.empty())
 		{
-			auto iter = std::find(paths_.begin(), paths_.end(), std::make_pair(std::string(virtual_path), real_path));
+			std::string virtual_path_str(virtual_path);
+			if (!virtual_path.empty() && (virtual_path[virtual_path.length() - 1] != '/'))
+			{
+				virtual_path_str.push_back('/');
+			}
+
+			auto iter = std::find(paths_.begin(), paths_.end(), std::make_pair(virtual_path_str, real_path));
 			if (iter != paths_.end())
 			{
 				paths_.erase(iter);
@@ -424,7 +401,7 @@ namespace KlayGE
 			{
 				if (path.first.empty() || (name.find(path.first) == 0))
 				{
-					std::string res_name(path.second + name);
+					std::string res_name(path.second + std::string(name.substr(path.first.size())));
 #if defined KLAYGE_PLATFORM_WINDOWS
 					std::replace(res_name.begin(), res_name.end(), '\\', '/');
 #endif
@@ -436,11 +413,11 @@ namespace KlayGE
 					else
 					{
 						std::string password;
-						std::string internal_name;
-						ResIdentifierPtr pkt_file = this->LocatePkt(name, res_name, password, internal_name);
+						std::string path_in_package;
+						ResIdentifierPtr pkt_file = this->LocatePkt(name, res_name, password, path_in_package);
 						if (pkt_file && *pkt_file)
 						{
-							if (Find7z(pkt_file, password, internal_name) != 0xFFFFFFFF)
+							if (Find7z(pkt_file, password, path_in_package) != 0xFFFFFFFF)
 							{
 								return res_name;
 							}
@@ -492,7 +469,7 @@ namespace KlayGE
 			{
 				if (path.first.empty() || (name.find(path.first) == 0))
 				{
-					std::string res_name(path.second + name);
+					std::string res_name(path.second + std::string(name.substr(path.first.size())));
 #if defined KLAYGE_PLATFORM_WINDOWS
 					std::replace(res_name.begin(), res_name.end(), '\\', '/');
 #endif

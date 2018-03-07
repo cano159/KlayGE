@@ -135,7 +135,6 @@ namespace KlayGE
 
 	private:
 		std::string RealPath(std::string const & path);
-		std::string PhysicalPath(std::string_view virtual_path);
 		void DecomposePackageName(std::string_view path,
 			std::string& package_path, std::string& password, std::string& path_in_package);
 

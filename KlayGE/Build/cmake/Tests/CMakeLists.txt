@@ -16,6 +16,7 @@ SET(SOURCE_FILES
 	${KLAYGE_PROJECT_DIR}/Tests/src/EncodeDecodeTexTest.cpp
 	${KLAYGE_PROJECT_DIR}/Tests/src/KlayGETests.cpp
 	${KLAYGE_PROJECT_DIR}/Tests/src/MathTest.cpp
+	${KLAYGE_PROJECT_DIR}/Tests/src/ResLoaderTest.cpp
 	${KLAYGE_PROJECT_DIR}/Tests/src/SIMDMathTest.cpp
 )
 SET(HEADER_FILES
