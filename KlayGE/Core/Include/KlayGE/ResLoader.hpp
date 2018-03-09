@@ -105,9 +105,9 @@ namespace KlayGE
 		void Mount(std::string_view virtual_path, std::string_view phy_path);
 		void Unmount(std::string_view virtual_path, std::string_view phy_path);
 
-		ResIdentifierPtr Open(std::string const & name);
-		std::string Locate(std::string const & name);
-		std::string AbsPath(std::string const & path);
+		ResIdentifierPtr Open(std::string_view name);
+		std::string Locate(std::string_view name);
+		std::string AbsPath(std::string_view path);
 
 		std::shared_ptr<void> SyncQuery(ResLoadingDescPtr const & res_desc);
 		std::shared_ptr<void> ASyncQuery(ResLoadingDescPtr const & res_desc);
@@ -134,7 +134,9 @@ namespace KlayGE
 		void Update();
 
 	private:
-		std::string RealPath(std::string const & path);
+		std::string RealPath(std::string_view path);
+		std::string RealPath(std::string_view path,
+			std::string& package_path, std::string& password, std::string& path_in_package);
 		void DecomposePackageName(std::string_view path,
 			std::string& package_path, std::string& password, std::string& path_in_package);
 
@@ -147,11 +149,11 @@ namespace KlayGE
 		ResIdentifierPtr LocatePkt(std::string_view name, std::string_view res_name,
 			std::string& password, std::string& internal_name);
 #if defined(KLAYGE_PLATFORM_ANDROID)
-		AAsset* LocateFileAndroid(std::string const & name);
+		AAsset* LocateFileAndroid(std::string_view name);
 #elif defined(KLAYGE_PLATFORM_IOS)
-		std::string LocateFileIOS(std::string const & name);
+		std::string LocateFileIOS(std::string_view name);
 #elif defined(KLAYGE_PLATFORM_WINDOWS_STORE)
-		std::string LocateFileWinRT(std::string const & name);
+		std::string LocateFileWinRT(std::string_view name);
 #endif
 
 	private:
@@ -166,7 +168,7 @@ namespace KlayGE
 
 		std::string exe_path_;
 		std::string local_path_;
-		std::vector<std::pair<std::string, std::string>> paths_;
+		std::vector<std::tuple<std::string, std::string, PackagePtr>> paths_;
 		std::mutex paths_mutex_;
 
 		std::mutex loaded_mutex_;
@@ -178,8 +180,6 @@ namespace KlayGE
 
 		std::unique_ptr<joiner<void>> loading_thread_;
 		volatile bool quit_;
-
-		std::vector<PackagePtr> packages_;
 	};
 }
 

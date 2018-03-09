@@ -46,10 +46,20 @@ namespace KlayGE
 		explicit Package(ResIdentifierPtr const & archive_is);
 		Package(ResIdentifierPtr const & archive_is, std::string_view password);
 
-		uint32_t Find(std::string_view extract_file_path);
+		bool Locate(std::string_view extract_file_path);
 		void Extract(std::string_view extract_file_path, std::shared_ptr<std::ostream> const & os);
 
+		ResIdentifier* ArchiveStream() const
+		{
+			return archive_is_.get();
+		}
+
 	private:
+		uint32_t Find(std::string_view extract_file_path);
+
+	private:
+		ResIdentifierPtr archive_is_;
+
 		std::shared_ptr<IInArchive> archive_;
 		std::string password_;
 

@@ -155,7 +155,7 @@ namespace KlayGE
 	}
 
 	Package::Package(ResIdentifierPtr const & archive_is, std::string_view password)
-		: password_(password)
+		: archive_is_(archive_is), password_(password)
 	{
 		BOOST_ASSERT(archive_is);
 
@@ -173,6 +173,27 @@ namespace KlayGE
 		TIFHR(archive_->Open(file.get(), 0, ocb.get()));
 
 		TIFHR(archive_->GetNumberOfItems(&num_items_));
+	}
+
+	bool Package::Locate(std::string_view extract_file_path)
+	{
+		uint32_t real_index = this->Find(extract_file_path);
+		return (real_index != 0xFFFFFFFF);
+	}
+
+	void Package::Extract(std::string_view extract_file_path, std::shared_ptr<std::ostream> const & os)
+	{
+		uint32_t real_index = this->Find(extract_file_path);
+		if (real_index != 0xFFFFFFFF)
+		{
+			auto out_stream = MakeCOMPtr(new COutStream);
+			out_stream->Attach(os);
+
+			auto ecb = MakeCOMPtr(new CArchiveExtractCallback);
+			ecb->Init(password_, out_stream);
+
+			TIFHR(archive_->Extract(&real_index, 1, false, ecb.get()));
+		}
 	}
 
 	uint32_t Package::Find(std::string_view extract_file_path)
@@ -220,20 +241,5 @@ namespace KlayGE
 		}
 
 		return real_index;
-	}
-
-	void Package::Extract(std::string_view extract_file_path, std::shared_ptr<std::ostream> const & os)
-	{
-		uint32_t real_index = this->Find(extract_file_path);
-		if (real_index != 0xFFFFFFFF)
-		{
-			auto out_stream = MakeCOMPtr(new COutStream);
-			out_stream->Attach(os);
-
-			auto ecb = MakeCOMPtr(new CArchiveExtractCallback);
-			ecb->Init(password_, out_stream);
-
-			TIFHR(archive_->Extract(&real_index, 1, false, ecb.get()));
-		}
 	}
 }
